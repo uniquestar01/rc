@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Rover Commander</title>
+    
+    <!-- Fonts & Map CSS -->
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        :root {
+            --bg-dark: #020305;
+            --panel-bg: rgba(8, 15, 25, 0.65);
+            --glass-border: rgba(0, 229, 255, 0.2);
+            --cyan: #00e5ff;
+            --blue: #0077ff;
+            --red: #ff2a2a;
+            --green: #00ff66;
+            --text-main: #e0f0ff;
+            --text-dim: #5c7894;
+            --glow-cyan: 0 0 15px rgba(0, 229, 255, 0.5);
+            --glow-blue: 0 0 15px rgba(0, 119, 255, 0.5);
+            --glow-red: 0 0 20px rgba(255, 42, 42, 0.6);
+            --glow-green: 0 0 15px rgba(0, 255, 102, 0.5);
+            
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-left: env(safe-area-inset-left, 0px);
+            --safe-right: env(safe-area-inset-right, 0px);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(ellipse at center, #07101d 0%, var(--bg-dark) 100%),
+                linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 30px 30px, 30px 30px;
+            color: var(--text-main);
+            font-family: 'Rajdhani', sans-serif;
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Portrait Warning Overlay */
+        #portrait-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: var(--bg-dark);
+            z-index: 9999;
+            flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; padding: 20px;
+        }
+        
+        .rotate-icon {
+            width: 80px; height: 80px; border: 4px solid var(--cyan); border-radius: 10px;
+            position: relative; animation: rotatePhone 2s infinite ease-in-out; margin-bottom: 30px;
+            box-shadow: var(--glow-cyan);
+        }
+        .rotate-icon::after {
+            content: ''; position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+            width: 20px; height: 4px; background: var(--cyan); border-radius: 2px;
+        }
+
+        @keyframes rotatePhone {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(-90deg); }
+            100% { transform: rotate(-90deg); }
+        }
+
+        #portrait-overlay h2 { font-family: 'Orbitron', sans-serif; color: var(--cyan); font-size: 1.5rem; letter-spacing: 2px; margin-bottom: 10px; text-shadow: var(--glow-cyan); }
+        #portrait-overlay p { font-size: 1.1rem; color: var(--text-dim); }
+
+        @media screen and (orientation: portrait) {
+            #portrait-overlay { display: flex; }
+            #dashboard { display: none !important; }
+        }
+
+        /* Main Dashboard Layout */
+        #dashboard {
+            display: flex; flex-direction: column;
+            width: 100%; height: 100%;
+            padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+        }
+
+        /* --- Top Bar --- */
+        .top-bar {
+            height: 50px; flex-shrink: 0;
+            background: linear-gradient(180deg, rgba(0,229,255,0.1) 0%, transparent 100%);
+            border-bottom: 1px solid var(--glass-border);
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 20px; z-index: 10;
+        }
+
+        .brand { font-family: 'Orbitron', sans-serif; font-size: 1.2rem; font-weight: 900; color: var(--cyan); text-shadow: var(--glow-cyan); letter-spacing: 2px; display: flex; align-items: center; gap:8px;}
+        .brand::before { content: ''; width: 8px; height: 8px; background: var(--cyan); border-radius: 50%; box-shadow: var(--glow-cyan); animation: blink 1.5s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        .toolbar { display: flex; gap: 15px; align-items: center; }
+
+        .btn-icon {
+            width: 36px; height: 36px; border-radius: 8px;
+            background: rgba(10, 20, 35, 0.7); border: 1px solid var(--glass-border);
+            color: var(--text-main); display: flex; justify-content: center; align-items: center;
+            cursor: pointer; transition: 0.2s; backdrop-filter: blur(4px);
+        }
+        .btn-icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .btn-icon:active, .btn-icon.active { background: rgba(0,229,255,0.2); border-color: var(--cyan); color: var(--cyan); box-shadow: var(--glow-cyan); }
+        
+        .btn-estop { border-color: rgba(255,42,42,0.4); color: var(--red); }
+        .btn-estop:active, .btn-estop.active { background: rgba(255,42,42,0.2); border-color: var(--red); color: var(--red); box-shadow: var(--glow-red); transform: scale(0.95); }
+
+        .sys-status { display: flex; gap: 15px; font-family: 'Orbitron', sans-serif; font-size: 0.85rem; }
+        .status-badge { display: flex; align-items: center; gap: 6px; }
+        .status-batt { color: var(--green); text-shadow: var(--glow-green); }
+        .status-conn { color: var(--blue); text-shadow: var(--glow-blue); }
+
+        /* --- Main Control Area --- */
+        .main-area {
+            flex: 1; display: flex; justify-content: space-between; align-items: center;
+            padding: 5px 30px; position: relative;
+        }
+
+        /* Joysticks */
+        .joy-wrapper { display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 5; }
+        .joy-label { font-family: 'Orbitron', monospace; font-size: 0.75rem; color: var(--text-dim); letter-spacing: 1px; text-align: center; }
+        .joy-label span { color: var(--cyan); }
+        
+        .joy-base {
+            width: 150px; height: 150px; border-radius: 50%;
+            background: radial-gradient(circle at 50% 50%, rgba(10,15,25,0.8), rgba(2,5,10,0.9));
+            border: 2px solid rgba(0,229,255,0.15);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 0 15px rgba(0,229,255,0.05);
+            position: relative; display: flex; justify-content: center; align-items: center;
+        }
+        .joy-base::after { content: ''; position: absolute; width: 60%; height: 60%; border-radius: 50%; border: 1px dashed rgba(0,229,255,0.15); pointer-events: none; }
+        
+        .joy-stick {
+            width: 55px; height: 55px; border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #3a4b66, #121826);
+            border: 2px solid var(--blue);
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            box-shadow: 0 5px 10px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.2);
+            transition: transform 0.1s ease-out; z-index: 10;
+        }
+        .joy-stick.active {
+            border-color: var(--cyan);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.3), var(--glow-cyan);
+        }
+
+        /* Center Console (D-PAD) */
+        .center-console {
+            display: flex; justify-content: center; align-items: center; flex: 1;
+        }
+
+        .dpad {
+            position: relative; width: 140px; height: 140px;
+        }
+        .dbtn {
+            position: absolute; background: var(--panel-bg); border: 1px solid var(--glass-border);
+            color: var(--cyan); display: flex; justify-content: center; align-items: center;
+            backdrop-filter: blur(5px); transition: 0.1s;
+        }
+        .dbtn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+        .dbtn:active { background: var(--cyan); color: #000; box-shadow: var(--glow-cyan); }
+        
+        .dbtn-up, .dbtn-down { width: 44px; height: 48px; left: 50%; transform: translateX(-50%); }
+        .dbtn-left, .dbtn-right { width: 48px; height: 44px; top: 50%; transform: translateY(-50%); }
+
+        .dbtn-up { top: 0; border-radius: 8px 8px 4px 4px; }
+        .dbtn-down { bottom: 0; border-radius: 4px 4px 8px 8px; }
+        .dbtn-left { left: 0; border-radius: 8px 4px 4px 8px; }
+        .dbtn-right { right: 0; border-radius: 4px 8px 8px 4px; }
+
+        .dbtn-center {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 44px; height: 44px; border-radius: 50%;
+            background: rgba(255,42,42,0.1); border: 2px solid var(--red); color: var(--red);
+            display: flex; justify-content: center; align-items: center;
+            font-family: 'Orbitron', sans-serif; font-size: 0.65rem; font-weight: 900;
+            z-index: 5; transition: 0.15s;
+        }
+        .dbtn-center:active { background: var(--red); color: #fff; box-shadow: var(--glow-red); transform: translate(-50%, -50%) scale(0.9); }
+
+        /* Floating Modules (Camera & Map) */
+        .floating-module {
+            position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+            width: 320px; height: 200px;
+            background: var(--panel-bg); border: 1px solid var(--glass-border);
+            border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,229,255,0.05);
+            backdrop-filter: blur(10px); z-index: 20; display: flex; flex-direction: column; overflow: hidden;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .floating-module.hidden { opacity: 0; pointer-events: none; transform: translate(-50%, -10px); }
+        .module-header {
+            padding: 5px 10px; background: rgba(0,229,255,0.1); border-bottom: 1px solid var(--glass-border);
+            font-family: 'Orbitron', sans-serif; font-size: 0.75rem; color: var(--cyan);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .btn-close { background: transparent; border: none; color: var(--cyan); cursor: pointer; font-size: 1.2rem; line-height: 1; padding: 0 5px; }
+        .module-content { flex: 1; background: #000; position: relative; }
+        
+        .cam-feed { width: 100%; height: 100%; object-fit: cover; }
+        .cam-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(rgba(0,229,255,0.05) 1px, transparent 1px) 0 0 / 100% 4px; pointer-events: none; }
+        #map-container { width: 100%; height: 100%; filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(120%); }
+
+        /* --- Bottom Panel --- */
+        .bottom-panel {
+            height: 70px; flex-shrink: 0;
+            display: flex; justify-content: center; align-items: center;
+            background: linear-gradient(0deg, rgba(0,229,255,0.05) 0%, transparent 100%);
+            border-top: 1px solid var(--glass-border);
+            padding: 0 20px;
+        }
+
+        .speed-module {
+            display: flex; align-items: center; gap: 20px;
+            background: var(--panel-bg); border: 1px solid var(--glass-border);
+            padding: 5px 15px; border-radius: 30px; backdrop-filter: blur(8px);
+        }
+
+        .digital-speed {
+            display: flex; align-items: baseline; gap: 4px;
+            font-family: 'Orbitron', sans-serif;
+            min-width: 90px;
+        }
+        .speed-val { font-size: 2.2rem; font-weight: 700; color: var(--cyan); text-shadow: var(--glow-cyan); line-height: 1; }
+        .speed-unit { font-size: 0.7rem; color: var(--text-dim); }
+
+        .speed-ctrl-wrap { display: flex; align-items: center; gap: 15px; width: 250px; }
+        .btn-round {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: rgba(0,229,255,0.1); border: 1px solid var(--cyan);
+            color: var(--cyan); display: flex; justify-content: center; align-items: center;
+            font-size: 1.2rem; cursor: pointer; transition: 0.1s;
+        }
+        .btn-round:active { background: var(--cyan); color: #000; box-shadow: var(--glow-cyan); transform: scale(0.9); }
+
+        input[type=range].slider {
+            flex: 1; -webkit-appearance: none; background: rgba(0,0,0,0.6); height: 6px; border-radius: 3px;
+            border: 1px solid rgba(0,229,255,0.3); outline: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+        }
+        input[type=range].slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%;
+            background: var(--cyan); cursor: pointer; box-shadow: var(--glow-cyan);
+            border: 2px solid #fff;
+        }
+
+        /* Adjustments for smaller/wider screens in landscape */
+        @media screen and (max-height: 400px) {
+            .joy-base { width: 120px; height: 120px; }
+            .joy-stick { width: 45px; height: 45px; }
+            .dpad { width: 120px; height: 120px; }
+            .dbtn-up, .dbtn-down { width: 38px; height: 42px; }
+            .dbtn-left, .dbtn-right { width: 42px; height: 38px; }
+            .dbtn-center { width: 38px; height: 38px; font-size: 0.6rem; }
+            .bottom-panel { height: 60px; }
+            .speed-val { font-size: 1.8rem; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Portrait Overlay -->
+    <div id="portrait-overlay">
+        <div class="rotate-icon"></div>
+        <h2>ROTATE DEVICE</h2>
+        <p>Please rotate your device to landscape mode<br>to use the rover controller.</p>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard">
+        
+        <!-- Top Toolbar -->
+        <header class="top-bar">
+            <div class="brand">ROVER::CTRL</div>
+            
+            <div class="toolbar">
+                <div class="btn-icon" id="tgl-light">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                </div>
+                <div class="btn-icon" id="tgl-horn">
+                    <svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                </div>
+                <div class="btn-icon active" id="tgl-cam">
+                    <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                </div>
+                <div class="btn-icon" id="tgl-map">
+                    <svg viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+                </div>
+                <div class="btn-icon btn-estop" id="btn-estop">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                </div>
+            </div>
+
+            <div class="sys-status">
+                <div class="status-badge status-batt">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"></rect><line x1="23" y1="13" x2="23" y2="11"></line></svg>
+                    <span>94%</span>
+                </div>
+                <div class="status-badge status-conn" id="conn-ind">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                    <span>ONLINE</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Floating Camera Module -->
+        <div id="module-cam" class="floating-module">
+            <div class="module-header">
+                <span>OPTICS STREAM</span>
+                <button class="btn-close" id="close-cam">&times;</button>
+            </div>
+            <div class="module-content">
+                <img id="vid-stream" class="cam-feed" src="http://192.168.4.1:81/stream" alt="NO SIGNAL">
+                <div class="cam-overlay"></div>
+            </div>
+        </div>
+
+        <!-- Floating Map Module -->
+        <div id="module-map" class="floating-module hidden">
+            <div class="module-header">
+                <span>GPS TACTICAL MAP</span>
+                <button class="btn-close" id="close-map">&times;</button>
+            </div>
+            <div class="module-content" id="map-container"></div>
+        </div>
+
+        <!-- Main Joysticks & D-Pad Area -->
+        <main class="main-area">
+            
+            <div class="joy-wrapper">
+                <div class="joy-label">PORT MOTORS (L) <br><span>X: <span id="v-l-x">0</span> Y: <span id="v-l-y">0</span></span></div>
+                <div class="joy-base" id="joy-l-base">
+                    <div class="joy-stick" id="joy-l-stick"></div>
+                </div>
+            </div>
+
+            <div class="center-console">
+                <div class="dpad">
+                    <div class="dbtn dbtn-up" id="dp-up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"></polyline></svg></div>
+                    <div class="dbtn dbtn-left" id="dp-left"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></div>
+                    <div class="dbtn dbtn-right" id="dp-right"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg></div>
+                    <div class="dbtn dbtn-down" id="dp-down"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></div>
+                    <div class="dbtn-center" id="dp-center">STOP</div>
+                </div>
+            </div>
+
+            <div class="joy-wrapper">
+                <div class="joy-label">STRB MOTORS (R) <br><span>X: <span id="v-r-x">0</span> Y: <span id="v-r-y">0</span></span></div>
+                <div class="joy-base" id="joy-r-base">
+                    <div class="joy-stick" id="joy-r-stick"></div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Bottom Speed Control Panel -->
+        <footer class="bottom-panel">
+            <div class="speed-module">
+                <div class="digital-speed">
+                    <span class="speed-val" id="disp-spd">50</span>
+                    <span class="speed-unit">PWR%</span>
+                </div>
+                <div class="speed-ctrl-wrap">
+                    <button class="btn-round" id="btn-dec">-</button>
+                    <input type="range" class="slider" id="slider-spd" min="0" max="100" value="50">
+                    <button class="btn-round" id="btn-inc">+</button>
+                </div>
+            </div>
+        </footer>
+
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        /**
+         * CONFIG & STATE
+         */
+        const IP_BASE = ""; // Empty string for relative requests, or "http://192.168.4.1"
+        const CAM_URL = "http://192.168.4.1:81/stream";
+        const UPDATE_MS = 80;
+        
+        let pL_X = 0, pL_Y = 0, pR_X = 0, pR_Y = 0;
+        let lastL = null, lastR = null;
+        let speedVal = 50;
+        let lightOn = false;
+
+        const connInd = document.getElementById('conn-ind');
+
+        /**
+         * NETWORK SENDER
+         */
+        async function emit(cmd) {
+            try {
+                // await fetch(IP_BASE + cmd, { mode: 'no-cors' });
+                connInd.style.color = "var(--green)";
+                connInd.style.textShadow = "var(--glow-green)";
+                connInd.querySelector('span').innerText = "ONLINE";
+            } catch(e) {
+                connInd.style.color = "var(--red)";
+                connInd.style.textShadow = "var(--glow-red)";
+                connInd.querySelector('span').innerText = "ERROR";
+            }
+        }
+
+        /**
+         * JOYSTICK ENGINE
+         */
+        function setupJoystick(baseId, stickId, valXId, valYId, callback) {
+            const base = document.getElementById(baseId);
+            const stick = document.getElementById(stickId);
+            const vx = document.getElementById(valXId);
+            const vy = document.getElementById(valYId);
+            let active = false;
+
+            const handleMove = (e) => {
+                if(!active) return;
+                e.preventDefault();
+                
+                const rect = base.getBoundingClientRect();
+                const cx = e.touches ? e.touches[0].clientX : e.clientX;
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                let dx = cx - centerX;
+                let dy = cy - centerY;
+                
+                const maxRadius = rect.width / 2.2;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist > maxRadius) {
+                    dx = (dx / dist) * maxRadius;
+                    dy = (dy / dist) * maxRadius;
+                }
+                
+                stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                
+                let outX = Math.round((dx / maxRadius) * 100);
+                let outY = Math.round((-dy / maxRadius) * 100); // Inverse Y so UP is POSITIVE
+                
+                vx.innerText = outX; vy.innerText = outY;
+                callback(outX, outY);
+            };
+
+            const start = (e) => {
+                active = true;
+                stick.classList.add('active');
+                stick.style.transition = 'none';
+                handleMove(e);
+            };
+
+            const stop = () => {
+                active = false;
+                stick.classList.remove('active');
+                stick.style.transition = 'transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)';
+                stick.style.transform = `translate(-50%, -50%)`;
+                vx.innerText = "0"; vy.innerText = "0";
+                callback(0,0);
+            };
+
+            base.addEventListener('mousedown', start);
+            window.addEventListener('mousemove', handleMove);
+            window.addEventListener('mouseup', stop);
+            base.addEventListener('touchstart', start, {passive: false});
+            window.addEventListener('touchmove', handleMove, {passive: false});
+            window.addEventListener('touchend', stop);
+        }
+
+        setupJoystick('joy-l-base', 'joy-l-stick', 'v-l-x', 'v-l-y', (x,y) => { pL_X = x; pL_Y = y; });
+        setupJoystick('joy-r-base', 'joy-r-stick', 'v-r-x', 'v-r-y', (x,y) => { pR_X = x; pR_Y = y; });
+
+        // Transmission loop
+        setInterval(() => {
+            const currL = `${pL_X},${pL_Y}`;
+            const currR = `${pR_X},${pR_Y}`;
+            if(currL !== lastL) { emit(`/left?x=${pL_X}&y=${pL_Y}`); lastL = currL; }
+            if(currR !== lastR) { emit(`/right?x=${pR_X}&y=${pR_Y}`); lastR = currR; }
+        }, UPDATE_MS);
+
+
+        /**
+         * SPEED CONTROL
+         */
+        const dispSpd = document.getElementById('disp-spd');
+        const sliderSpd = document.getElementById('slider-spd');
+
+        function setSpd(v) {
+            speedVal = Math.max(0, Math.min(100, v));
+            sliderSpd.value = speedVal;
+            dispSpd.innerText = speedVal.toString().padStart(2, '0');
+            emit(`/speed?value=${speedVal}`);
+        }
+
+        document.getElementById('btn-dec').onclick = () => setSpd(speedVal - 10);
+        document.getElementById('btn-inc').onclick = () => setSpd(speedVal + 10);
+        sliderSpd.oninput = (e) => dispSpd.innerText = e.target.value.padStart(2, '0');
+        sliderSpd.onchange = (e) => setSpd(parseInt(e.target.value));
+
+
+        /**
+         * TOP TOOLBAR TOGGLES
+         */
+        document.getElementById('tgl-light').onclick = function() {
+            lightOn = !lightOn;
+            this.classList.toggle('active');
+            emit('/light');
+        };
+
+        const btnHorn = document.getElementById('tgl-horn');
+        const applyHorn = (s) => { if(s) {btnHorn.classList.add('active'); emit('/horn');} else {btnHorn.classList.remove('active');} };
+        btnHorn.onmousedown = () => applyHorn(true);
+        btnHorn.onmouseup = () => applyHorn(false);
+        btnHorn.onmouseleave = () => applyHorn(false);
+        btnHorn.addEventListener('touchstart', (e)=> {e.preventDefault(); applyHorn(true);}, {passive:false});
+        btnHorn.addEventListener('touchend', () => applyHorn(false));
+
+        document.getElementById('btn-estop').onclick = () => {
+            setSpd(0);
+            emit('/stop');
+            // Flash screen red
+            document.body.style.boxShadow = 'inset 0 0 100px rgba(255,0,0,0.8)';
+            setTimeout(() => document.body.style.boxShadow = 'none', 500);
+        };
+
+
+        /**
+         * D-PAD BINDINGS
+         */
+        document.getElementById('dp-up').onclick = () => emit('/forward');
+        document.getElementById('dp-down').onclick = () => emit('/backward');
+        document.getElementById('dp-left').onclick = () => emit('/leftturn');
+        document.getElementById('dp-right').onclick = () => emit('/rightturn');
+        document.getElementById('dp-center').onclick = () => emit('/stop');
+
+
+        /**
+         * FLOATING MODULES (CAM / MAP)
+         */
+        const modCam = document.getElementById('module-cam');
+        const btnTglCam = document.getElementById('tgl-cam');
+        const vidStream = document.getElementById('vid-stream');
+        let camActive = true;
+
+        const toggleCam = (forceClose) => {
+            if(forceClose) camActive = false; else camActive = !camActive;
+            if(camActive) {
+                modCam.classList.remove('hidden');
+                btnTglCam.classList.add('active');
+                vidStream.src = CAM_URL + "?t=" + Date.now();
+            } else {
+                modCam.classList.add('hidden');
+                btnTglCam.classList.remove('active');
+                vidStream.src = "";
+            }
+        };
+        btnTglCam.onclick = () => toggleCam();
+        document.getElementById('close-cam').onclick = () => toggleCam(true);
+
+        const modMap = document.getElementById('module-map');
+        const btnTglMap = document.getElementById('tgl-map');
+        let mapActive = false;
+        let mapInst = null;
+
+        const initMapLeaflet = () => {
+            if(mapInst) return;
+            mapInst = L.map('map-container', { zoomControl: false, attributionControl: false }).setView([51.505, -0.09], 16);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png').addTo(mapInst);
+            L.circleMarker([51.505, -0.09], { color: '#00e5ff', fillColor: '#00e5ff', fillOpacity: 0.8, radius: 6 }).addTo(mapInst);
+        };
+
+        const toggleMap = (forceClose) => {
+            if(forceClose) mapActive = false; else mapActive = !mapActive;
+            if(mapActive) {
+                modMap.classList.remove('hidden');
+                btnTglMap.classList.add('active');
+                if(!mapInst) {
+                    setTimeout(initMapLeaflet, 300); // wait for transition
+                } else {
+                    setTimeout(()=>mapInst.invalidateSize(), 300);
+                }
+            } else {
+                modMap.classList.add('hidden');
+                btnTglMap.classList.remove('active');
+            }
+        };
+        btnTglMap.onclick = () => toggleMap();
+        document.getElementById('close-map').onclick = () => toggleMap(true);
+
+        // Pre-initialize on boot
+        emit('/speed?value=50');
+
+    </script>
+</body>
+</html>
