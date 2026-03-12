@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rover Commander V3</title>
+    <title>Rover Commander V3.1 - Fail-Safe Edition</title>
     
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
@@ -108,6 +108,14 @@
         .btn-connect:active { background: var(--cyan); color: #000; }
         .conn-status-msg { margin-top: 15px; font-size: 0.9rem; color: var(--yellow); font-family: 'Orbitron', monospace; height: 1.2em; }
 
+        /* Disable overlay for safety locking */
+        #lock-overlay {
+            position: fixed; top: 55px; left: 0; width: 100vw; height: calc(100vh - 55px);
+            background: rgba(40, 0, 0, 0.4); backdrop-filter: blur(2px);
+            z-index: 4000; display: none; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .lock-msg { font-family: 'Orbitron', sans-serif; color: var(--red); font-size: 1.5rem; text-shadow: var(--glow-red); background: rgba(0,0,0,0.8); padding: 15px 30px; border: 1px solid var(--red); border-radius: 8px;}
+
         /* Main Dashboard Layout */
         #dashboard {
             display: flex; flex-direction: column;
@@ -146,7 +154,8 @@
 
         .sys-status { display: flex; gap: 15px; font-family: 'Orbitron', monospace; font-size: 0.85rem; }
         .status-badge { display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); }
-        .status-batt { color: var(--green); }
+        .status-batt { color: var(--yellow); }
+        .status-batt.good { color: var(--green); }
         .status-conn { color: var(--red); } /* Initially disconnected */
 
         /* --- Main Control Area --- */
@@ -296,7 +305,6 @@
             .speed-val { font-size: 1.8rem; }
             .esc-warning { font-size: 0.6rem; }
         }
-
     </style>
 </head>
 <body>
@@ -308,11 +316,16 @@
         <p>Please rotate your device to landscape mode<br>to safely control the rover.</p>
     </div>
 
+    <!-- UI Lock / Disconnected Overlay -->
+    <div id="lock-overlay">
+        <div class="lock-msg">CONNECTION LOST. ROVER CONTROL DISABLED.</div>
+    </div>
+
     <!-- Connection Modal -->
     <div id="conn-modal">
         <div class="conn-box">
             <h2>LINK VEHICLE</h2>
-            <input type="text" id="ip-addr" class="ip-input" placeholder="http://192.168.4.1" value="http://192.168.4.1">
+            <input type="text" id="ip-addr" class="ip-input" placeholder="192.168.4.1" value="192.168.4.1">
             <button class="btn-connect" id="btn-connect">CONNECT SYSTEM</button>
             <div class="conn-status-msg" id="conn-msg"></div>
         </div>
@@ -320,7 +333,6 @@
 
     <!-- Main Dashboard -->
     <div id="dashboard">
-        
         <!-- Top Toolbar -->
         <header class="top-bar">
             <div class="brand">ROVER::CTRL</div>
@@ -341,9 +353,9 @@
             </div>
 
             <div class="sys-status">
-                <div class="status-badge status-batt">
+                <div class="status-badge status-batt" id="batt-badge">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"></rect><line x1="23" y1="13" x2="23" y2="11"></line></svg>
-                    <span>94%</span>
+                    <span>UNKNOWN</span>
                 </div>
                 <div class="status-badge status-conn" id="conn-badge">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -367,7 +379,6 @@
 
         <!-- Main Joysticks & D-Pad Area -->
         <main class="main-area">
-            
             <!-- LEFT JOYSTICK -->
             <div class="joy-wrapper">
                 <div class="joy-label">PORT MOTORS (L) <br><span>X: <span id="v-l-x">0</span> Y: <span id="v-l-y">0</span></span></div>
@@ -377,7 +388,7 @@
             </div>
 
             <div class="center-console">
-                <div class="esc-warning">ESC SAFETY CLAMP ACTIVE</div>
+                <div class="esc-warning">FAIL-SAFE LINK ACTIVE</div>
                 <div class="dpad">
                     <div class="dbtn dbtn-up" id="dp-up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"></polyline></svg></div>
                     <div class="dbtn dbtn-left" id="dp-left"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></div>
@@ -394,10 +405,9 @@
                     <div class="joy-stick" id="joy-r-stick"></div>
                 </div>
             </div>
-
         </main>
 
-        <!-- Bottom Speed Control Panel: Starts at 0, gradual increase -->
+        <!-- Bottom Speed Control Panel (Starts at 0, ramps gradually) -->
         <footer class="bottom-panel">
             <div class="speed-module">
                 <div class="digital-speed">
@@ -411,152 +421,253 @@
                 </div>
             </div>
         </footer>
-
     </div>
 
     <script>
         /**
-         * SAFETY & CONFIG
-         * 1. Speed must always start at 0
-         * 2. Max rate of command sending is throttled (100ms) to prevent flooding ESP32
-         * 3. Cannot send commands while disconnected
+         * SAFETY, CONFIG & TELEMETRY
          */
         const UPDATE_MS = 80;
+        const RAMP_MS = 40;
+        const FAILSAFE_TIMEOUT_MS = 1500;
         
+        // State
         let baseURL = "";
         let isConnected = false;
-        let isRequestPending = false;
+        
+        let targetSpeed = 0;
+        let actualSpeed = 0; // Starts at 0, ramps up
+        let lightOn = false;
 
         let pL_X = 0, pL_Y = 0;
         let pR_X = 0, pR_Y = 0;
-        let speedVal = 0; // Rule: Default speed MUST start at 0
-        let lightOn = false;
+        let lastSentL = "", lastSentR = "";
 
+        // Timers & Queue
+        let requestQueue = [];
+        let isRequestPending = false;
+        let lastCommandTime = Date.now();
+        let failsafeCheckInt_ID = null;
+        let battPollerObj_ID = null;
+        
+        // Dom Elements
         const connBadge = document.getElementById('conn-badge');
-        const connBadgeText = connBadge.querySelector('span');
-
-        /**
-         * CONNECTION SYSTEM
-         */
-        document.getElementById('btn-connect').onclick = async () => {
-            const ipInput = document.getElementById('ip-addr').value.trim();
-            const msgBox = document.getElementById('conn-msg');
-            
-            if(!ipInput) {
-                msgBox.innerText = "Error: Invalid IP Address";
-                msgBox.style.color = "var(--red)";
-                return;
-            }
-
-            // Formatting base URL
-            baseURL = ipInput.startsWith('http') ? ipInput : `http://${ipInput}`;
-            // Strip trailing slash
-            if(baseURL.endsWith('/')) baseURL = baseURL.slice(0, -1);
-
-            msgBox.innerText = "Attempting Handshake...";
-            msgBox.style.color = "var(--cyan)";
-
-            try {
-                // In production, you would fetch a ping endpoint e.g., /ping
-                // await fetch(baseURL + '/ping', { mode: 'no-cors', signal: AbortSignal.timeout(3000) });
-                
-                // Demo simulation for the sake of the interface:
-                setTimeout(() => {
-                    handleConnectionSuccess();
-                }, 600);
-            } catch (err) {
-                handleConnectionError();
-            }
-        };
-
-        function handleConnectionSuccess() {
-            isConnected = true;
-            document.getElementById('conn-modal').style.display = 'none';
-            document.getElementById('dashboard').classList.add('active');
-            
-            // Update Dashboard Badge
-            connBadge.style.color = "var(--green)";
-            connBadge.style.textShadow = "var(--glow-green)";
-            connBadge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg><span>CONNECTED</span>`;
-
-            // Enforce Rule 1: Send initial 0 speed upon connect to reset ESC payload safely
-            transmitSafe(`/speed?value=0`);
-        }
-
-        function handleConnectionError() {
-            isConnected = false;
-            const msgBox = document.getElementById('conn-msg');
-            msgBox.innerText = "Link Failed. ESP32 Unreachable.";
-            msgBox.style.color = "var(--red)";
-
-            connBadge.style.color = "var(--red)";
-            connBadge.style.textShadow = "var(--glow-red)";
-            connBadge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>DISCONNECTED</span>`;
-        }
-
-        /**
-         * CRITICAL ROBUST NETWORK SENDER
-         * Prevents flooding, crashes, and duplicate stacking.
-         */
-        async function transmitSafe(endpoint) {
-            if(!isConnected) return;
-            // Prevent duplicate overlapped requests
-            if(isRequestPending) return;
-
-            isRequestPending = true;
-            try {
-                // Actual send call (mode no-cors required for ESP32 without CORS headers)
-                // await fetch(baseURL + endpoint, { mode: 'no-cors' });
-                
-                // If it succeeds, ensure we stay green
-                if(!isConnected) { handleConnectionSuccess(); }
-            } catch(e) {
-                // Network error handling without crashing UI
-                // Only drop connection status if it continually drops, but for now we tag error
-                console.warn(`Fetch error against ${baseURL}${endpoint}: `, e);
-                // handleConnectionError();
-            } finally {
-                // Release lock
-                isRequestPending = false;
-            }
-        }
-
-        /**
-         * ESC SAFE SPEED CONTROL
-         * Rules: Gradual adjust, Starts at 0, Max limit 100
-         */
+        const battBadge = document.getElementById('batt-badge');
+        const lockOverlay = document.getElementById('lock-overlay');
         const dispSpd = document.getElementById('disp-spd');
         const sliderSpd = document.getElementById('slider-spd');
 
-        function setSpd(v) {
-            // Safety clamping
-            let safeVal = Math.max(0, Math.min(100, v));
-            speedVal = safeVal;
-            sliderSpd.value = speedVal;
-            dispSpd.innerText = speedVal.toString().padStart(2, '0');
-            transmitSafe(`/speed?value=${speedVal}`);
+        /**
+         * CONNECTION SYSTEM & PING VALIDATION
+         */
+        document.getElementById('btn-connect').onclick = async () => {
+            let ipInput = document.getElementById('ip-addr').value.trim();
+            const msgBox = document.getElementById('conn-msg');
+            
+            // Format URL robustly
+            if(!ipInput) { msgBox.innerText = "Error: Invalid IP"; msgBox.style.color = "var(--red)"; return; }
+            if(!ipInput.startsWith('http://') && !ipInput.startsWith('https://')) { ipInput = `http://${ipInput}`; }
+            if(ipInput.endsWith('/')) { ipInput = ipInput.slice(0, -1); } // Remove trailing slash
+            
+            baseURL = ipInput;
+
+            msgBox.innerText = `Pinging ESP32 at ${baseURL}...`;
+            msgBox.style.color = "var(--cyan)";
+
+            try {
+                // Ping endpoint with timeout using fetch
+                const aborter = new AbortController();
+                const timeoutId = setTimeout(() => aborter.abort(), 2000);
+                
+                const response = await fetch(`${baseURL}/ping`, { signal: aborter.signal, mode: 'no-cors' });
+                clearTimeout(timeoutId);
+                
+                // If it resolves (even opaque no-cors), assume success
+                handleConnectionChange(true);
+            } catch (err) {
+                msgBox.innerText = "Link Failed. ESP32 Unreachable.";
+                msgBox.style.color = "var(--red)";
+                handleConnectionChange(false);
+            }
+        };
+
+        function handleConnectionChange(active) {
+            isConnected = active;
+            
+            if (active) {
+                document.getElementById('conn-modal').style.display = 'none';
+                document.getElementById('dashboard').classList.add('active');
+                lockOverlay.style.display = 'none';
+                
+                connBadge.style.color = "var(--green)";
+                connBadge.style.textShadow = "var(--glow-green)";
+                connBadge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg><span>CONNECTED</span>`;
+
+                lastCommandTime = Date.now();
+                // Ensure zero ESC outputs to start
+                queueCommand('/stop');
+                targetSpeed = actualSpeed = sliderSpd.value = 0;
+                dispSpd.innerText = "00";
+
+                // Start safety watchers
+                if(!failsafeCheckInt_ID) failsafeCheckInt_ID = setInterval(checkFailsafe, 500);
+                if(!battPollerObj_ID) battPollerObj_ID = setInterval(pollBatteryTelemetry, 2000);
+                
+            } else {
+                lockOverlay.style.display = 'flex';
+                connBadge.style.color = "var(--red)";
+                connBadge.style.textShadow = "var(--glow-red)";
+                connBadge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>DISCONNECTED</span>`;
+            }
         }
 
-        // Incremental gradual stepping (never sudden jumps unless slid)
-        document.getElementById('btn-dec').onclick = () => setSpd(speedVal - 5);
-        document.getElementById('btn-inc').onclick = () => setSpd(speedVal + 5);
-        
-        sliderSpd.oninput = (e) => {
-            // Live update visual ONLY, prevent spamming ESC while sliding
-            dispSpd.innerText = e.target.value.padStart(2, '0');
-        };
-        sliderSpd.onchange = (e) => {
-            // Transmit safe clamped value when finger is released from slider
-            setSpd(parseInt(e.target.value));
-        };
+        /**
+         * NETWORK REQUEST QUEUE MANAGER
+         */
+        function queueCommand(endpoint) {
+            if(!isConnected) return;
+            
+            // Deduplication (don't stack the same request multiple times in queue)
+            if(requestQueue.length > 0 && requestQueue[requestQueue.length-1] === endpoint) {
+                return;
+            }
+
+            requestQueue.push(endpoint);
+            lastCommandTime = Date.now(); // We consider the intention to send as healthy
+            processQueue();
+        }
+
+        async function processQueue() {
+            if(isRequestPending || requestQueue.length === 0 || !isConnected) return;
+            
+            isRequestPending = true;
+            const endpoint = requestQueue.shift();
+
+            try {
+                // Wait for the exact fetch request resolution
+                await fetch(baseURL + endpoint, { mode: 'no-cors' });
+                // Note: no-cors doesn't throw on HTTP errors (like 404/500), but does throw on Network dead
+            } catch(e) {
+                console.warn(`ESP32 Comm Error: ${e.message}`);
+                // Handle serious network drop
+                handleConnectionChange(false);
+            } finally {
+                isRequestPending = false;
+                // Recursive exhaust of the queue if more are waiting
+                if(requestQueue.length > 0) {
+                    processQueue();
+                }
+            }
+        }
 
 
         /**
-         * ESC SAFE DUAL JOYSTICKS
-         * Values clamped strictly -100 to 100
+         * CRITICAL FAIL-SAFE RUNAWAY PROTECTION
          */
-        function clampAxis(val) {
-            return Math.max(-100, Math.min(100, val));
+        function checkFailsafe() {
+            if(!isConnected) return;
+            const msSinceLast = Date.now() - lastCommandTime;
+            
+            if(msSinceLast > FAILSAFE_TIMEOUT_MS) {
+                console.error("FAILSAFE TRIGGERED: Loss of control detected.");
+                targetSpeed = actualSpeed = sliderSpd.value = 0;
+                dispSpd.innerText = "00";
+                
+                // Hard reset joysticks visually
+                stopJoystick('joy-l-stick', 'v-l-x', 'v-l-y', (x,y)=>{pL_X=pL_Y=0;});
+                stopJoystick('joy-r-stick', 'v-r-x', 'v-r-y', (x,y)=>{pR_X=pR_Y=0;});
+                
+                // Clear queue immediately and force stop at top priority
+                requestQueue = [];
+                queueCommand('/stop');
+            }
+        }
+
+        /**
+         * BATTERY TELEMETRY SYSTEM
+         */
+        async function pollBatteryTelemetry() {
+            if(!isConnected) return;
+            
+            try {
+                // Must use manual fetch bypassing queue to not stall controls, and we need CORS handled by ESP32 or use text payload
+                const aborter = new AbortController();
+                const timeoutId = setTimeout(() => aborter.abort(), 1000);
+                
+                // Wait for response body (Ensure ESP32 returns simple string like "85")
+                const response = await fetch(`${baseURL}/battery`, { signal: aborter.signal });
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const textValue = await response.text();
+                    const battVal = parseInt(textValue.trim());
+                    
+                    if(!isNaN(battVal)) {
+                        battBadge.classList.add('good');
+                        battBadge.style.color = "var(--green)";
+                        battBadge.querySelector('span').innerText = `${battVal}%`;
+                    }
+                }
+            } catch (err) {
+                // Silently flag UNKNOWN on error rather than crashing
+                battBadge.classList.remove('good');
+                battBadge.style.color = "var(--yellow)";
+                battBadge.querySelector('span').innerText = `UNKNOWN`;
+            }
+        }
+
+
+        /**
+         * ESC SAFE SPEED RAMPING PROTECTION
+         */
+        function setTargetSpeed(v) {
+            targetSpeed = Math.max(0, Math.min(100, v));
+            sliderSpd.value = targetSpeed;
+        }
+
+        // Gradual ramp loop to prevent ESC/Motor surging and burning
+        setInterval(() => {
+            if(!isConnected) return;
+            
+            if(Math.abs(targetSpeed - actualSpeed) > 0.5) {
+                // Lerp formula logic
+                actualSpeed += (targetSpeed - actualSpeed) * 0.2;
+                
+                // Formatting rounding
+                const sendVal = Math.round(actualSpeed);
+                dispSpd.innerText = sendVal.toString().padStart(2, '0');
+                queueCommand(`/speed?value=${sendVal}`);
+            } else if (actualSpeed !== targetSpeed) {
+                // Snap if it's super close
+                actualSpeed = targetSpeed;
+                const sendVal = Math.round(actualSpeed);
+                dispSpd.innerText = sendVal.toString().padStart(2, '0');
+                if(sendVal === 0) queueCommand('/stop'); // Double safety
+                else queueCommand(`/speed?value=${sendVal}`);
+            }
+        }, RAMP_MS);
+
+        document.getElementById('btn-dec').onclick = () => setTargetSpeed(targetSpeed - 5);
+        document.getElementById('btn-inc').onclick = () => setTargetSpeed(targetSpeed + 5);
+        sliderSpd.oninput = (e) => { setTargetSpeed(parseInt(e.target.value)); };
+        sliderSpd.onchange = (e) => { setTargetSpeed(parseInt(e.target.value)); };
+
+
+        /**
+         * SYNCHRONIZED JOYSTICK ENGINE 
+         * No duplicates. Safe Clamps.
+         */
+        function clampAxis(val) { return Math.max(-100, Math.min(100, val)); }
+
+        // Needs to be globally accessible for failsafe to trigger visually
+        function stopJoystick(stickId, valXId, valYId, callback) {
+            const stick = document.getElementById(stickId);
+            stick.classList.remove('active');
+            stick.style.transition = 'transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)';
+            stick.style.transform = `translate(-50%, -50%)`;
+            document.getElementById(valXId).innerText = "0"; 
+            document.getElementById(valYId).innerText = "0";
+            callback(0,0);
         }
 
         function setupJoystick(baseId, stickId, valXId, valYId, callback) {
@@ -583,37 +694,18 @@
                 const maxRadius = rect.width / 2.2;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 
-                if (dist > maxRadius) {
-                    dx = (dx / dist) * maxRadius;
-                    dy = (dy / dist) * maxRadius;
-                }
-                
+                if (dist > maxRadius) { dx = (dx / dist) * maxRadius; dy = (dy / dist) * maxRadius; }
                 stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
                 
-                // Enforcing safe mapping logic 
                 let outX = clampAxis(Math.round((dx / maxRadius) * 100));
-                let outY = clampAxis(Math.round((-dy / maxRadius) * 100)); // Inverse Y so UP is POSITIVE
+                let outY = clampAxis(Math.round((-dy / maxRadius) * 100));
                 
                 vx.innerText = outX; vy.innerText = outY;
                 callback(outX, outY);
             };
 
-            const start = (e) => {
-                active = true;
-                stick.classList.add('active');
-                stick.style.transition = 'none';
-                handleMove(e);
-            };
-
-            const stop = () => {
-                active = false;
-                stick.classList.remove('active');
-                // Smooth zero return logic
-                stick.style.transition = 'transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)';
-                stick.style.transform = `translate(-50%, -50%)`;
-                vx.innerText = "0"; vy.innerText = "0";
-                callback(0,0);
-            };
+            const start = (e) => { active = true; stick.classList.add('active'); stick.style.transition = 'none'; handleMove(e); };
+            const stop = () => { active = false; stopJoystick(stickId, valXId, valYId, callback); };
 
             base.addEventListener('mousedown', start);
             window.addEventListener('mousemove', handleMove);
@@ -626,117 +718,106 @@
         setupJoystick('joy-l-base', 'joy-l-stick', 'v-l-x', 'v-l-y', (x,y) => { pL_X = x; pL_Y = y; });
         setupJoystick('joy-r-base', 'joy-r-stick', 'v-r-x', 'v-r-y', (x,y) => { pR_X = x; pR_Y = y; });
 
-        // Synchronized Polled Transmission logic to prevent network overlap/lag
-        let lastL_Tx = "", lastR_Tx = "";
-        
+        // Optimized Joystick sender loop (ONLY sends changes)
         setInterval(() => {
             if(!isConnected) return;
             const currL = `${pL_X},${pL_Y}`;
             const currR = `${pR_X},${pR_Y}`;
             
-            if(currL !== lastL_Tx) {
-                transmitSafe(`/left?x=${pL_X}&y=${pL_Y}`);
-                lastL_Tx = currL;
-            }
-            // Add a small internal delay if needed between L and R requests, 
-            // but for async `fetch` in no-cors, parallel execution is generally light.
-            if(currR !== lastR_Tx) {
-                transmitSafe(`/right?x=${pR_X}&y=${pR_Y}`);
-                lastR_Tx = currR;
-            }
+            if(currL !== lastSentL) { queueCommand(`/left?x=${pL_X}&y=${pL_Y}`); lastSentL = currL; }
+            if(currR !== lastSentR) { queueCommand(`/right?x=${pR_X}&y=${pR_Y}`); lastSentR = currR; }
         }, UPDATE_MS);
-
 
         /**
          * EMERGENCY STOP (CRITICAL)
-         * Must instantly wipe speed back to 0 safety state.
          */
-        document.getElementById('btn-estop').onclick = () => {
+        const eStopExecute = () => {
             if(!isConnected) return;
-            // Immediate wipe
-            setSpd(0);
-            pL_X = pL_Y = pR_X = pR_Y = 0;
+            targetSpeed = actualSpeed = sliderSpd.value = 0;
+            dispSpd.innerText = "00";
+            stopJoystick('joy-l-stick', 'v-l-x', 'v-l-y', (x,y)=>{pL_X=pL_Y=0;});
+            stopJoystick('joy-r-stick', 'v-r-x', 'v-r-y', (x,y)=>{pR_X=pR_Y=0;});
             
-            transmitSafe('/stop');
-            
+            requestQueue = []; // Wipe running queue commands
+            queueCommand('/stop');
             document.body.style.boxShadow = 'inset 0 0 100px rgba(255,0,0,0.8)';
             setTimeout(() => document.body.style.boxShadow = 'none', 500);
         };
-        document.getElementById('dp-center').onclick = () => {
-            if(!isConnected) return;
-            pL_X = pL_Y = pR_X = pR_Y = 0;
-            transmitSafe('/stop');
-        };
-
+        
+        document.getElementById('btn-estop').onclick = eStopExecute;
+        document.getElementById('dp-center').onclick = eStopExecute;
 
         /**
-         * TOP TOOLBAR TOGGLES
+         * TOP TOOLBAR TOGGLES & D-PAD BINDINGS
          */
         document.getElementById('tgl-light').onclick = function() {
-            if(!isConnected) return;
-            lightOn = !lightOn;
-            this.classList.toggle('active');
-            transmitSafe('/light');
+            if(!isConnected) return; lightOn = !lightOn; this.classList.toggle('active'); queueCommand('/light');
         };
 
         const btnHorn = document.getElementById('tgl-horn');
         const applyHorn = (s) => { 
-            if(!isConnected) return;
-            if(s) {btnHorn.classList.add('active'); transmitSafe('/horn');} 
+            if(!isConnected) return; 
+            if(s) {btnHorn.classList.add('active'); queueCommand('/horn');} 
             else {btnHorn.classList.remove('active');} 
         };
-        btnHorn.onmousedown = () => applyHorn(true);
-        btnHorn.onmouseup = () => applyHorn(false);
-        btnHorn.onmouseleave = () => applyHorn(false);
+        btnHorn.onmousedown = () => applyHorn(true); btnHorn.onmouseup = () => applyHorn(false); btnHorn.onmouseleave = () => applyHorn(false);
         btnHorn.addEventListener('touchstart', (e)=> {e.preventDefault(); applyHorn(true);}, {passive:false});
         btnHorn.addEventListener('touchend', () => applyHorn(false));
 
+        const bindDp = (id, cmd) => document.getElementById(id).onclick = () => queueCommand(cmd);
+        bindDp('dp-up', '/forward'); bindDp('dp-down', '/backward'); bindDp('dp-left', '/leftturn'); bindDp('dp-right', '/rightturn');
 
         /**
-         * D-PAD BINDINGS (Clustered)
-         */
-        const bindDp = (id, cmd) => document.getElementById(id).onclick = () => transmitSafe(cmd);
-        bindDp('dp-up', '/forward');
-        bindDp('dp-down', '/backward');
-        bindDp('dp-left', '/leftturn');
-        bindDp('dp-right', '/rightturn');
-
-
-        /**
-         * FLOATING OPTICS MODULE (ESP32-CAM)
+         * STABILIZED CAMERA ESP32-CAM STREAMING (With Retry Loop)
          */
         const modCam = document.getElementById('module-cam');
         const btnTglCam = document.getElementById('tgl-cam');
         const vidStream = document.getElementById('vid-stream');
         const camLoading = document.getElementById('cam-loading');
+        
         let camActive = false;
+        let camRetryID = null;
 
-        const toggleCam = (forceClose) => {
-            if(!isConnected && !forceClose) return; // Need IP to open stream
-            if(forceClose) camActive = false; else camActive = !camActive;
+        const attemptCamLoad = () => {
+            if(!camActive || !baseURL) return;
             
+            let camIP = baseURL;
+            if((camIP.match(/:/g) || []).length > 1) camIP = camIP.substring(0, camIP.lastIndexOf(':'));
+            
+            vidStream.src = ""; // Force unload
+            setTimeout(() => {
+                if(!camActive) return;
+                vidStream.src = `${camIP}:81/stream?t=${Date.now()}`;
+            }, 100);
+        };
+
+        vidStream.onload = () => { if(camActive) { vidStream.style.display = 'block'; camLoading.style.display = 'none'; } };
+        vidStream.onerror = () => {
             if(camActive) {
-                modCam.classList.remove('hidden');
-                btnTglCam.classList.add('active');
-                
-                // Formulate camera URL using explicit IP :81 port logic
-                let camIP = baseURL;
-                // If base url defines port, slice it off for camera generic format
-                if((camIP.match(/:/g) || []).length > 1) {
-                    camIP = camIP.substring(0, camIP.lastIndexOf(':'));
-                }
-                const opticUrl = `${camIP}:81/stream?t=${Date.now()}`;
-                
-                vidStream.src = opticUrl;
-                vidStream.onload = () => { vidStream.style.display = 'block'; camLoading.style.display = 'none'; };
-                vidStream.onerror = () => { camLoading.innerText = 'NO CAMERA SIGNAL'; };
-            } else {
-                modCam.classList.add('hidden');
-                btnTglCam.classList.remove('active');
-                vidStream.src = "";
                 vidStream.style.display = 'none';
                 camLoading.style.display = 'block';
-                camLoading.innerText = 'AWAITING SIGNAL...';
+                camLoading.innerText = 'STREAM DROPPED... RETRYING...';
+                
+                // Auto-retry load every 3 seconds if stream fails
+                clearTimeout(camRetryID);
+                camRetryID = setTimeout(attemptCamLoad, 3000);
+            }
+        };
+
+        const toggleCam = (forceClose) => {
+            if(!isConnected && !forceClose) return; 
+            if(forceClose) camActive = false; else camActive = !camActive;
+            
+            clearTimeout(camRetryID); // clear loops
+
+            if(camActive) {
+                modCam.classList.remove('hidden'); btnTglCam.classList.add('active');
+                camLoading.style.display = 'block'; camLoading.innerText = 'AWAITING SIGNAL...';
+                attemptCamLoad();
+            } else {
+                modCam.classList.add('hidden'); btnTglCam.classList.remove('active');
+                vidStream.src = ""; vidStream.style.display = 'none';
+                camLoading.style.display = 'block'; camLoading.innerText = 'OFFLINE';
             }
         };
         btnTglCam.onclick = () => toggleCam();
